@@ -9,9 +9,11 @@ import {
 import { v4 as uuidv4 } from "uuid";
 
 import { ChatPromptTemplate } from "@langchain/core/prompts";
+import { trimMessages } from "@langchain/core/messages";
 
 export const dynamic = "force-static";
 
+// General template when sending messages to the LLM.
 const promptTemplate = ChatPromptTemplate.fromMessages([
   [
     "system",
@@ -20,7 +22,18 @@ const promptTemplate = ChatPromptTemplate.fromMessages([
   ["placeholder", "{messages}"],
 ]);
 
+// Changing this will change the history of the chat, this is used to keep a track of the current chat.
 const config = { configurable: { thread_id: uuidv4() } };
+
+// This function makes sure that we do not go over the LLM context window when parsing previous messages, so it will remember only the recent prompts not every single one.
+const trimmer = trimMessages({
+  maxTokens: 10,
+  strategy: "last",
+  tokenCounter: (msgs) => msgs.length,
+  includeSystem: true,
+  allowPartial: false,
+  startOn: "human",
+});
 
 const llm = new ChatOpenAI({
   model: "gpt-4o",
@@ -28,13 +41,17 @@ const llm = new ChatOpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// This function is used to call the LLM and get the response.
 const callModel = async (state: typeof MessagesAnnotation.State) => {
-  const prompt = await promptTemplate.invoke(state);
+  const trimmedMessage = await trimmer.invoke(state.messages);
+  const prompt = await promptTemplate.invoke({
+    messages: trimmedMessage,
+  });
   const response = await llm.invoke(prompt);
-  // Update message history with response:
   return { messages: [response] };
 };
 
+// TODO: Understand this
 const workflow = new StateGraph(MessagesAnnotation)
   .addNode("model", callModel)
   .addEdge(START, "model")
