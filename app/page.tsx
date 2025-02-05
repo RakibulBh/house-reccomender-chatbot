@@ -5,19 +5,70 @@ import { Send, Plus, Hash, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { cn } from "@/lib/utils";
+
+type Message = {
+  id: string;
+  content: string;
+  role: "user" | "assistant";
+};
 
 export default function ChatApp() {
   const [isTyping, setIsTyping] = useState(false);
   const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [currentChannel, setCurrentChannel] = useState("general");
 
-  const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const channels = ["general", "random", "ideas", "questions"];
+
+  const handleSendMessage = async (content: string) => {
+    try {
+      setIsTyping(true);
+
+      const response = await fetch("/api", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messages: messages.map(({ content, role }) => ({ content, role })),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to send message");
+      }
+
+      const data = await response.json();
+
+      const assistantMessage: Message = {
+        id: crypto.randomUUID(),
+        content: data.text,
+        role: "assistant",
+      };
+
+      setMessages((prev) => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error("Error sending message:", error);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+
+    if (!input.trim() || isTyping) return;
+
+    const userMessage: Message = {
+      id: crypto.randomUUID(),
+      content: input,
+      role: "user",
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
     setInput("");
-    fetch("/api", {
-      method: "POST",
-      body: JSON.stringify({ message: input }),
-    });
+    await handleSendMessage(input);
   };
 
   return (
@@ -29,11 +80,15 @@ export default function ChatApp() {
         </div>
         <ScrollArea className="flex-grow">
           <div className="p-2 space-y-2">
-            {["general", "random", "ideas", "questions"].map((channel) => (
+            {channels.map((channel) => (
               <Button
                 key={channel}
                 variant="ghost"
-                className="w-full justify-start text-gray-300 hover:text-white hover:bg-[#42464D]"
+                className={cn(
+                  "w-full justify-start text-gray-300 hover:text-white hover:bg-[#42464D]",
+                  currentChannel === channel && "bg-[#42464D] text-white"
+                )}
+                onClick={() => setCurrentChannel(channel)}
               >
                 <Hash className="h-5 w-5 mr-2" />
                 {channel}
@@ -49,7 +104,7 @@ export default function ChatApp() {
         <header className="p-4 shadow-md bg-[#36393f] flex justify-between items-center">
           <div className="flex items-center">
             <Hash className="h-6 w-6 mr-2 text-gray-400" />
-            <h2 className="text-lg font-semibold">general</h2>
+            <h2 className="text-lg font-semibold">{currentChannel}</h2>
           </div>
           <div className="flex items-center space-x-4">
             <Button variant="ghost" size="icon">
@@ -60,15 +115,35 @@ export default function ChatApp() {
 
         {/* Messages */}
         <ScrollArea className="flex-grow p-4">
-          <div className="space-y-4"></div>
+          <div className="space-y-4">
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={cn(
+                  "flex items-start space-x-3 p-2 rounded-lg",
+                  message.role === "user" ? "bg-[#40444b]" : "bg-[#32353b]"
+                )}
+              >
+                <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
+                  {message.role === "user" ? "U" : "A"}
+                </div>
+                <div className="flex-1">
+                  <p className="font-medium">
+                    {message.role === "user" ? "You" : "Assistant"}
+                  </p>
+                  <p className="text-gray-300">{message.content}</p>
+                </div>
+              </div>
+            ))}
+            {isTyping && (
+              <div className="text-gray-400 italic">Assistant is typing...</div>
+            )}
+          </div>
         </ScrollArea>
 
         {/* Input Area */}
         <footer className="p-4 bg-[#40444b]">
-          <form
-            onSubmit={(e) => onSubmit(e)}
-            className="flex items-center space-x-2"
-          >
+          <form onSubmit={onSubmit} className="flex items-center space-x-2">
             <Button
               type="button"
               variant="ghost"
@@ -80,7 +155,7 @@ export default function ChatApp() {
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Message #general"
+              placeholder={`Message #${currentChannel}`}
               className="flex-grow bg-[#40444b] border-none text-gray-100 placeholder-gray-400 focus:ring-2 focus:ring-blue-500"
             />
             <Button
